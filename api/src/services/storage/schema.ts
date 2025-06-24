@@ -1,5 +1,5 @@
 import {relations as drizzleRelations, type InferSelectModel} from "drizzle-orm"
-import {boolean, index, jsonb, pgEnum, pgTable, primaryKey, serial, text, uuid} from "drizzle-orm/pg-core"
+import {boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, serial, text, uuid} from "drizzle-orm/pg-core"
 
 export const ipfsCache = pgTable("ipfs_cache", {
 	id: serial(),
@@ -14,6 +14,25 @@ export const ipfsCache = pgTable("ipfs_cache", {
 	isErrored: boolean().notNull().default(false),
 	block: text().notNull(),
 	space: uuid().notNull(),
+})
+
+/**
+ * Cursors store the latest indexed block log. Indexers store their latest
+ * block log after they have completed indexing a block, and read the latest
+ * block log when starting a new indexing process.
+ *
+ * The knowledge graph is a state machine, so block indexing should be
+ * deterministic and idempotent to avoid writing data to the knowledge graph
+ * which might disrupt its state.
+ *
+ * Currently, indexers may share databases, so the id for a given indexer
+ * should be unique so they can query their cursor state appropriately. For
+ * example, the kg indexer may use an id of "kg_indexer", and the ipfs cache
+ * indexer may use "ipfs_indexer"
+ */
+export const cursors = pgTable("cursors", {
+	id: text().primaryKey(),
+	cursor: text().notNull(),
 })
 
 export const spaceTypesEnum = pgEnum("spaceTypes", ["Personal", "Public"])
