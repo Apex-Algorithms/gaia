@@ -24,7 +24,7 @@ export class Batching extends Context.Tag("Batching")<Batching, BatchingShape>()
 export const make = Effect.gen(function* () {
 	const storage = yield* Storage
 
-	// Create DataLoader instances
+	// Create DataLoader instances with performance optimizations
 	const entitiesLoader = new DataLoader(async (ids: readonly string[]) => {
 		const result = await Effect.runPromise(
 			storage.use(async (client) => {
@@ -46,6 +46,10 @@ export const make = Effect.gen(function* () {
 				const values = await client.query.values.findMany({
 					where: (values, {inArray, and, eq}) =>
 						and(inArray(values.entityId, [...ids]), eq(values.propertyId, SystemIds.NAME_PROPERTY)),
+					columns: {
+						entityId: true,
+						value: true,
+					}, // Only select needed columns
 				})
 
 				// Create lookup map and return results in same order as input
@@ -62,6 +66,10 @@ export const make = Effect.gen(function* () {
 				const values = await client.query.values.findMany({
 					where: (values, {inArray, and, eq}) =>
 						and(inArray(values.entityId, [...ids]), eq(values.propertyId, SystemIds.DESCRIPTION_PROPERTY)),
+					columns: {
+						entityId: true,
+						value: true,
+					}, // Only select needed columns
 				})
 
 				// Create lookup map and return results in same order as input

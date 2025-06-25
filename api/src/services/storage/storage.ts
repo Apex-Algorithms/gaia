@@ -29,10 +29,11 @@ export class StorageError extends Data.TaggedError("StorageError")<{
 
 const _pool = new Pool({
 	connectionString: Redacted.value(EnvironmentLive.databaseUrl),
-	max: 15, // Reasonable limit to prevent overwhelming DB
+	max: 15,
 	min: 2,
 	idleTimeoutMillis: 30000,
-	connectionTimeoutMillis: 10000,
+	connectionTimeoutMillis: 15000, // Slightly increased for batched queries
+	allowExitOnIdle: true, // Allow process to exit when pool is idle
 })
 
 // Add basic error handling for the pool
@@ -96,7 +97,7 @@ export const make = Effect.gen(function* () {
 						// Provide more specific error messages for common pool issues
 						if (errorMessage.includes("too many clients")) {
 							return new StorageError({
-								message: `Database connection pool exhausted. Consider implementing DataLoaders to reduce concurrent queries.`,
+								message: `Database connection pool exhausted. Consider increasing max pool size or optimizing query patterns.`,
 								cause: error,
 							})
 						}
@@ -124,7 +125,7 @@ export const make = Effect.gen(function* () {
 							if (errorMessage.includes("too many clients")) {
 								return new StorageError({
 									cause: error,
-									message: `Database connection pool exhausted. Consider implementing DataLoaders to reduce concurrent queries.`,
+									message: `Database connection pool exhausted. Consider increasing max pool size or optimizing query patterns.`,
 								})
 							}
 
