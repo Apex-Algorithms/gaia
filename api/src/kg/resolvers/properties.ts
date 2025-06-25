@@ -1,5 +1,5 @@
 import {SystemIds} from "@graphprotocol/grc-20"
-import {and, eq} from "drizzle-orm"
+import {and, eq, inArray, sql} from "drizzle-orm"
 import {Effect} from "effect"
 import {DataType, type QueryPropertiesArgs, type QueryTypesArgs, RenderableType} from "../../generated/graphql"
 import {Batching} from "../../services/storage/dataloaders"
@@ -15,10 +15,26 @@ export function getProperties(args: QueryPropertiesArgs) {
 
 		return yield* db.use(async (client) => {
 			const dataTypeFilter = args.filter?.dataType
+			const idFilter = args.filter?.id
+
+			// Build where conditions
+			const whereConditions = []
+
+			if (dataTypeFilter) {
+				whereConditions.push(eq(properties.type, getDataTypeAsText(dataTypeFilter)))
+			}
+
+			if (idFilter?.in) {
+				if (idFilter.in.length > 0) {
+					whereConditions.push(inArray(properties.id, idFilter.in))
+				} else {
+					// Empty array means no results should be returned
+					whereConditions.push(sql`1 = 0`)
+				}
+			}
+
 			const result = await client.query.properties.findMany({
-				where: dataTypeFilter
-					? (properties, {eq}) => eq(properties.type, getDataTypeAsText(dataTypeFilter))
-					: undefined,
+				where: whereConditions.length > 0 ? and(...whereConditions) : undefined,
 				limit: args.limit ?? 100,
 				offset: args.offset ?? 0,
 			})
