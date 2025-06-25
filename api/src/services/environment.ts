@@ -3,7 +3,7 @@ import {Config, Context, Effect, Option, type Redacted} from "effect"
 export type IEnvironment = Readonly<{
 	databaseUrl: Redacted.Redacted
 	debug: boolean | null
-	telemetryUrl: Redacted.Redacted | null
+	telemetryToken: Redacted.Redacted | null
 	ipfsKey: string
 	ipfsGatewayWrite: string
 	ipfsGatewayRead: string
@@ -24,8 +24,9 @@ export const make = Effect.gen(function* (_) {
 		throw new Error(`Invalid configuration for chain id. Expected 19411 or 80451. Got ${chainId}`)
 	}
 
-	const maybeTelemetryUrl = yield* _(Config.option(Config.redacted("TELEMETRY_URL")))
-	const telemetryUrl = Option.match(maybeTelemetryUrl, {
+	const maybeTelemetryToken = yield* Config.option(Config.redacted("TELEMETRY_TOKEN"))
+
+	const telemetryToken = Option.match(maybeTelemetryToken, {
 		onSome: (o) => o,
 		onNone: () => null,
 	})
@@ -37,7 +38,7 @@ export const make = Effect.gen(function* (_) {
 	return {
 		chainId,
 		databaseUrl: databaseUrl,
-		telemetryUrl,
+		telemetryToken,
 		debug,
 		ipfsKey: ipfsKey,
 		ipfsGatewayWrite: ipfsGatewayWrite,
