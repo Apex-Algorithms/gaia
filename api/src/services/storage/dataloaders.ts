@@ -2,6 +2,7 @@ import {SystemIds} from "@graphprotocol/grc-20"
 import DataLoader from "dataloader"
 import {Context, Data, Effect} from "effect"
 import type {RelationFilter, ValueFilter} from "~/src/generated/graphql"
+import {NodeSdkLive} from "../telemetry"
 import {db, Storage} from "./storage"
 
 export class BatchingError extends Data.TaggedError("BatchingError")<{
@@ -98,8 +99,6 @@ interface BatchingShape {
 export class Batching extends Context.Tag("Batching")<Batching, BatchingShape>() {}
 
 export const make = Effect.gen(function* () {
-	const storage = yield* Storage
-
 	return Batching.of({
 		loadEntity: (id: string) =>
 			Effect.tryPromise({
@@ -187,6 +186,7 @@ const entitiesLoader = new DataLoader((ids: readonly string[]) => {
 		Effect.promise(batch).pipe(
 			Effect.withSpan("entitiesLoader"),
 			Effect.annotateSpans({ids, batchLength: ids.length}),
+			Effect.provide(NodeSdkLive),
 		),
 	)
 })
@@ -210,6 +210,7 @@ const entityNamesLoader = new DataLoader((ids: readonly string[]) => {
 		Effect.promise(batch).pipe(
 			Effect.withSpan("entityNamesLoader"),
 			Effect.annotateSpans({ids, batchLength: ids.length}),
+			Effect.provide(NodeSdkLive),
 		),
 	)
 })
@@ -233,6 +234,7 @@ const entityDescriptionsLoader = new DataLoader((ids: readonly string[]) => {
 		Effect.promise(batch).pipe(
 			Effect.withSpan("entityDescriptionsLoader"),
 			Effect.annotateSpans({ids, batchLength: ids.length}),
+			Effect.provide(NodeSdkLive),
 		),
 	)
 })
@@ -342,6 +344,7 @@ const entityRelationsLoader = new DataLoader(
 			Effect.promise(batch).pipe(
 				Effect.withSpan("entityRelationsLoader"),
 				Effect.annotateSpans({keys, batchLength: keys.length}),
+				Effect.provide(NodeSdkLive),
 			),
 		)
 	},
@@ -365,6 +368,7 @@ const propertiesLoader = new DataLoader((ids: readonly string[]) => {
 		Effect.promise(batch).pipe(
 			Effect.withSpan("propertiesLoader"),
 			Effect.annotateSpans({ids, batchLength: ids.length}),
+			Effect.provide(NodeSdkLive),
 		),
 	)
 })
@@ -423,6 +427,7 @@ const entityBacklinksLoader = new DataLoader(
 			Effect.promise(batch).pipe(
 				Effect.withSpan("entityBacklinksLoader"),
 				Effect.annotateSpans({keys, batchLength: keys.length}),
+				Effect.provide(NodeSdkLive),
 			),
 		)
 	},

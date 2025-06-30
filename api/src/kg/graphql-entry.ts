@@ -1,7 +1,5 @@
-import {SystemIds} from "@graphprotocol/grc-20"
 import {makeExecutableSchema} from "@graphql-tools/schema"
 import {file} from "bun"
-import DataLoader from "dataloader"
 import {Effect, Layer} from "effect"
 import {createYoga} from "graphql-yoga"
 import type {
@@ -15,7 +13,7 @@ import type {
 } from "../generated/graphql"
 import {Environment, make as makeEnvironment} from "../services/environment"
 import {Batching, make as makeBatching} from "../services/storage/dataloaders"
-import {db, make as makeStorage, Storage} from "../services/storage/storage"
+import {make as makeStorage, Storage} from "../services/storage/storage"
 import * as MembershipResolvers from "./resolvers/membership"
 import * as Resolvers from "./resolvers/root"
 
@@ -93,11 +91,17 @@ const resolvers: GeneratedResolvers = {
 		},
 		relations: (parent: {id: string}, args: EntityRelationsArgs, context: GraphQLContext) => {
 			const spaceId = args.spaceId ?? context.spaceId
-			return Resolvers.entityRelations({id: parent.id, spaceId})
+			return Resolvers.entityRelations({
+				id: parent.id,
+				spaceId,
+			})
 		},
 		backlinks: (parent: {id: string}, args: EntityRelationsArgs, context: GraphQLContext) => {
 			const spaceId = args.spaceId ?? context.spaceId
-			return Resolvers.entityBacklinks({id: parent.id, spaceId})
+			return Resolvers.entityBacklinks({
+				id: parent.id,
+				spaceId: spaceId,
+			})
 		},
 	},
 	Type: {
@@ -172,7 +176,6 @@ const schema = makeExecutableSchema({
 export const graphqlServer = createYoga({
 	schema,
 	batching: true,
-	context: (): GraphQLContext => ({}),
 	graphqlEndpoint: "/graphql",
 	fetchAPI: {Response, Request},
 })
