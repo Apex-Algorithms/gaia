@@ -1,6 +1,6 @@
 import {Effect, Layer} from "effect"
-import {Batching, make as makeBatching} from "~/src/services/storage/dataloaders"
 import {NodeSdkLive} from "~/src/services/telemetry"
+import type {GraphQLContext} from "~/src/types"
 import {
 	DataType,
 	type QueryEntitiesArgs,
@@ -22,8 +22,7 @@ import * as TypeResolvers from "./types"
 
 const EnvironmentLayer = Layer.effect(Environment, makeEnvironment)
 const StorageLayer = Layer.effect(Storage, makeStorage).pipe(Layer.provide(EnvironmentLayer))
-const BatchingLayer = Layer.effect(Batching, makeBatching).pipe(Layer.provide(StorageLayer))
-const layers = Layer.mergeAll(EnvironmentLayer, StorageLayer, BatchingLayer, NodeSdkLive)
+const layers = Layer.mergeAll(EnvironmentLayer, StorageLayer, NodeSdkLive)
 const provideDeps = Effect.provide(layers)
 
 export const entities = (args: QueryEntitiesArgs) => {
@@ -36,9 +35,9 @@ export const entities = (args: QueryEntitiesArgs) => {
 	)
 }
 
-export const entity = (args: QueryEntityArgs) => {
+export const entity = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getEntity(args.id).pipe(
+		EntityResolvers.getEntity(args.id, context).pipe(
 			Effect.withSpan("getEntity"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -46,9 +45,9 @@ export const entity = (args: QueryEntityArgs) => {
 	)
 }
 
-export const entityName = (args: QueryEntityArgs) => {
+export const entityName = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getEntityName(args.id).pipe(
+		EntityResolvers.getEntityName(args.id, context).pipe(
 			Effect.withSpan("getEntityName"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -56,9 +55,9 @@ export const entityName = (args: QueryEntityArgs) => {
 	)
 }
 
-export const entityDescription = (args: QueryEntityArgs) => {
+export const entityDescription = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getEntityDescription(args.id).pipe(
+		EntityResolvers.getEntityDescription(args.id, context).pipe(
 			Effect.withSpan("getEntityDescription"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -66,9 +65,9 @@ export const entityDescription = (args: QueryEntityArgs) => {
 	)
 }
 
-export const entityTypes = (args: QueryEntityArgs) => {
+export const entityTypes = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getEntityTypes(args.id).pipe(
+		EntityResolvers.getEntityTypes(args.id, context).pipe(
 			Effect.withSpan("getEntityTypes"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -76,9 +75,9 @@ export const entityTypes = (args: QueryEntityArgs) => {
 	)
 }
 
-export const entitySpaces = (args: QueryEntityArgs) => {
+export const entitySpaces = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getSpaces(args.id).pipe(
+		EntityResolvers.getSpaces(args.id, context).pipe(
 			Effect.withSpan("getSpaces"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -86,9 +85,9 @@ export const entitySpaces = (args: QueryEntityArgs) => {
 	)
 }
 
-export const values = (args: QueryEntityArgs & {spaceId?: string | null}) => {
+export const values = (args: QueryEntityArgs & {spaceId?: string | null}, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getValues(args.id, args.spaceId).pipe(
+		EntityResolvers.getValues({id: args.id, spaceId: args.spaceId}, context).pipe(
 			Effect.withSpan("getValues"),
 			Effect.annotateSpans({entityId: args.id, spaceId: args.spaceId}),
 			provideDeps,
@@ -96,9 +95,9 @@ export const values = (args: QueryEntityArgs & {spaceId?: string | null}) => {
 	)
 }
 
-export const entityRelations = (args: QueryEntityArgs & {spaceId?: string | null}) => {
+export const entityRelations = (args: QueryEntityArgs & {spaceId?: string | null}, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getRelations(args.id, args.spaceId).pipe(
+		EntityResolvers.getRelations({id: args.id, spaceId: args.spaceId}, context).pipe(
 			Effect.withSpan("getRelations"),
 			Effect.annotateSpans({entityId: args.id, spaceId: args.spaceId}),
 			provideDeps,
@@ -106,9 +105,9 @@ export const entityRelations = (args: QueryEntityArgs & {spaceId?: string | null
 	)
 }
 
-export const entityBacklinks = (args: QueryEntityArgs & {spaceId?: string | null}) => {
+export const entityBacklinks = (args: QueryEntityArgs & {spaceId?: string | null}, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getBacklinks(args.id, args.spaceId).pipe(
+		EntityResolvers.getBacklinks({id: args.id, spaceId: args.spaceId}, context).pipe(
 			Effect.withSpan("getBacklinks"),
 			Effect.annotateSpans({entityId: args.id, spaceId: args.spaceId}),
 			provideDeps,
@@ -136,9 +135,9 @@ export const relation = (args: QueryEntityArgs) => {
 	)
 }
 
-export const property = (args: QueryEntityArgs) => {
+export const property = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		PropertyResolvers.getProperty(args.id).pipe(
+		PropertyResolvers.getProperty(args.id, context).pipe(
 			Effect.withSpan("getProperty"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -146,9 +145,9 @@ export const property = (args: QueryEntityArgs) => {
 	)
 }
 
-export const propertiesForType = (typeId: string, args: QueryTypesArgs) => {
+export const propertiesForType = (typeId: string, args: QueryTypesArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		PropertyResolvers.getPropertiesForType(typeId, args).pipe(
+		PropertyResolvers.getPropertiesForType(typeId, args, context).pipe(
 			Effect.withSpan("getPropertiesForType"),
 			Effect.annotateSpans({typeId, ...args}),
 			provideDeps,
@@ -156,14 +155,14 @@ export const propertiesForType = (typeId: string, args: QueryTypesArgs) => {
 	)
 }
 
-export const propertyRelationValueTypes = (args: QueryEntityArgs & {dataType: DataType}) => {
+export const propertyRelationValueTypes = (args: QueryEntityArgs & {dataType: DataType}, context: GraphQLContext) => {
 	// Only relations can have a relation value type
 	if (args.dataType !== DataType.Relation) {
 		return []
 	}
 
 	return Effect.runPromise(
-		PropertyResolvers.getPropertyRelationValueTypes(args.id).pipe(
+		PropertyResolvers.getPropertyRelationValueTypes(args.id, context).pipe(
 			Effect.withSpan("getPropertyRelationValueTypes"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -171,9 +170,9 @@ export const propertyRelationValueTypes = (args: QueryEntityArgs & {dataType: Da
 	)
 }
 
-export const propertyRenderableType = (args: QueryEntityArgs) => {
+export const propertyRenderableType = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		PropertyResolvers.getPropertyRenderableType(args.id).pipe(
+		PropertyResolvers.getPropertyRenderableType(args.id, context).pipe(
 			Effect.withSpan("getPropertyRenderableType"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,
@@ -187,9 +186,9 @@ export const types = (args: QueryTypesArgs) => {
 	)
 }
 
-export const blocks = (args: QueryEntityArgs) => {
+export const blocks = (args: QueryEntityArgs, context: GraphQLContext) => {
 	return Effect.runPromise(
-		EntityResolvers.getBlocks(args.id).pipe(
+		EntityResolvers.getBlocks(args.id, context).pipe(
 			Effect.withSpan("getBlocks"),
 			Effect.annotateSpans({entityId: args.id}),
 			provideDeps,

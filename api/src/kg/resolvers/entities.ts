@@ -1,5 +1,6 @@
 import {SystemIds} from "@graphprotocol/grc-20"
 import {Effect} from "effect"
+import {BatchingError, type GraphQLContext} from "~/src/types"
 import {
 	BlockType,
 	DataSourceType,
@@ -8,7 +9,6 @@ import {
 	type RelationFilter,
 	type ValueFilter,
 } from "../../generated/graphql"
-import {Batching} from "../../services/storage/dataloaders"
 import {Storage} from "../../services/storage/storage"
 import {buildEntityWhere, type EntityFilter} from "./filters"
 
@@ -49,11 +49,16 @@ export function getEntities(args: QueryEntitiesArgs) {
 	})
 }
 
-export function getEntity(id: string) {
+export function getEntity(id: string, context: GraphQLContext) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-
-		const entity = yield* batching.loadEntity(id)
+		const entity = yield* Effect.tryPromise({
+			try: () => context.entitiesLoader.load(id),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity ${id}: ${String(error)}`,
+				}),
+		}).pipe(Effect.annotateSpans({entityId: id}), Effect.withSpan("getEntity.loadEntity"))
 
 		if (!entity) {
 			return null
@@ -69,37 +74,86 @@ export function getEntity(id: string) {
 	})
 }
 
-export function getEntityName(id: string) {
+export function getEntityName(id: string, context: GraphQLContext) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-		const name = yield* batching.loadEntityName(id)
+		const name = yield* Effect.tryPromise({
+			try: () => context.entityNamesLoader.load(id),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity name ${id}: ${String(error)}`,
+				}),
+		}).pipe(Effect.annotateSpans({entityId: id}), Effect.withSpan("getEntityName.loadEntityName"))
 
 		return name
 	})
 }
 
-export function getEntityDescription(id: string) {
+export function getEntityDescription(id: string, context: GraphQLContext) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-		const description = yield* batching.loadEntityDescription(id)
+		const description = yield* Effect.tryPromise({
+			try: () => context.entityDescriptionsLoader.load(id),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity description ${id}: ${String(error)}`,
+				}),
+		}).pipe(Effect.annotateSpans({entityId: id}), Effect.withSpan("loadEntityDescription"))
 
 		return description
 	})
 }
 
-export function getValues(id: string, spaceId?: string | null, filter?: ValueFilter | null) {
+export function getValues(
+	{
+		id,
+		spaceId,
+		filter,
+	}: {
+		id: string
+		spaceId?: string | null
+		filter?: ValueFilter | null
+	},
+	context: GraphQLContext,
+) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-		const values = yield* batching.loadEntityValues(id, spaceId, filter)
+		const values = yield* Effect.tryPromise({
+			try: () => context.entityValuesLoader.load({entityId: id, spaceId, filter}),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity values for ${id}: ${String(error)}`,
+				}),
+		}).pipe(Effect.annotateSpans({entityId: id, spaceId, filter}), Effect.withSpan("getValues.loadEntityValues"))
 
 		return values
 	})
 }
 
-export function getRelations(id: string, spaceId?: string | null, filter?: RelationFilter | null) {
+export function getRelations(
+	{
+		id,
+		spaceId,
+		filter,
+	}: {
+		id: string
+		spaceId?: string | null
+		filter?: RelationFilter | null
+	},
+	context: GraphQLContext,
+) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-		const relations = yield* batching.loadEntityRelations(id, spaceId, filter)
+		const relations = yield* Effect.tryPromise({
+			try: () => context.entityRelationsLoader.load({entityId: id, spaceId, filter}),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity relations for ${id}: ${String(error)}`,
+				}),
+		}).pipe(
+			Effect.annotateSpans({entityId: id, spaceId, filter}),
+			Effect.withSpan("getRelations.loadEntityRelations"),
+		)
 
 		return relations.map((relation) => ({
 			id: relation.id,
@@ -115,10 +169,27 @@ export function getRelations(id: string, spaceId?: string | null, filter?: Relat
 	})
 }
 
-export function getBacklinks(id: string, spaceId?: string | null, filter?: RelationFilter | null) {
+export function getBacklinks(
+	{
+		id,
+		spaceId,
+		filter,
+	}: {
+		id: string
+		spaceId?: string | null
+		filter?: RelationFilter | null
+	},
+	context: GraphQLContext,
+) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-		const backlinks = yield* batching.loadEntityBacklinks(id, spaceId, filter)
+		const backlinks = yield* Effect.tryPromise({
+			try: () => context.entityBacklinksLoader.load({entityId: id, spaceId, filter}),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity backlinks for ${id}: ${String(error)}`,
+				}),
+		}).pipe(Effect.annotateSpans({entityId: id, spaceId, filter}), Effect.withSpan("loadEntityBacklinks"))
 
 		return backlinks.map((relation) => ({
 			id: relation.id,
@@ -224,10 +295,16 @@ export function getAllRelations(args: QueryRelationsArgs) {
 	})
 }
 
-export function getEntityTypes(id: string) {
+export function getEntityTypes(id: string, context: GraphQLContext) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-		const relations = yield* batching.loadEntityRelations(id)
+		const relations = yield* Effect.tryPromise({
+			try: () => context.entityRelationsLoader.load({entityId: id}),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity relations for ${id}: ${String(error)}`,
+				}),
+		}).pipe(Effect.annotateSpans({entityId: id}), Effect.withSpan("getEntityTypes.loadEntityRelations"))
 
 		// Filter for type relations and load the target entities
 		const typeRelations = relations.filter((relation) => relation.typeId === SystemIds.TYPES_PROPERTY)
@@ -235,7 +312,15 @@ export function getEntityTypes(id: string) {
 		// Use batching to load the type entities
 		const typeEntities = yield* Effect.forEach(
 			typeRelations,
-			(relation) => batching.loadEntity(relation.toEntityId),
+			(relation) =>
+				Effect.tryPromise({
+					try: () => context.entitiesLoader.load(relation.toEntityId),
+					catch: (error) =>
+						new BatchingError({
+							cause: error,
+							message: `Failed to batch load entity ${id}: ${String(error)}`,
+						}),
+				}).pipe(Effect.annotateSpans({entityId: id}), Effect.withSpan("getEntityTypes.loadEntity")),
 			{concurrency: "unbounded"},
 		)
 
@@ -252,12 +337,27 @@ export function getEntityTypes(id: string) {
 	})
 }
 
-export function getSpaces(id: string) {
+export function getSpaces(id: string, context: GraphQLContext) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-
 		// Load both values and relations for the entity
-		const [values, relations] = yield* Effect.all([batching.loadEntityValues(id), batching.loadEntityRelations(id)])
+		const [values, relations] = yield* Effect.all([
+			Effect.tryPromise({
+				try: () => context.entityValuesLoader.load({entityId: id}),
+				catch: (error) =>
+					new BatchingError({
+						cause: error,
+						message: `Failed to batch load entity values for ${id}: ${String(error)}`,
+					}),
+			}).pipe(Effect.annotateSpans({entityId: id}), Effect.withSpan("getSpaces.loadEntityValues")),
+			Effect.tryPromise({
+				try: () => context.entityRelationsLoader.load({entityId: id}),
+				catch: (error) =>
+					new BatchingError({
+						cause: error,
+						message: `Failed to batch load entity relations for ${id}: ${String(error)}`,
+					}),
+			}).pipe(Effect.annotateSpans({entityId: id}), Effect.withSpan("getSpaces.loadEntityRelations")),
+		])
 
 		const propertySpaces = values.map((p) => p.spaceId)
 		const relationSpaces = relations.map((r) => r.spaceId)
@@ -266,12 +366,17 @@ export function getSpaces(id: string) {
 	})
 }
 
-export function getBlocks(entityId: string) {
+export function getBlocks(entityId: string, context: GraphQLContext) {
 	return Effect.gen(function* () {
-		const batching = yield* Batching
-
 		// Get all relations for the entity
-		const relations = yield* batching.loadEntityRelations(entityId)
+		const relations = yield* Effect.tryPromise({
+			try: () => context.entityRelationsLoader.load({entityId}),
+			catch: (error) =>
+				new BatchingError({
+					cause: error,
+					message: `Failed to batch load entity relations for ${entityId}: ${String(error)}`,
+				}),
+		}).pipe(Effect.annotateSpans({entityId}), Effect.withSpan("getBlocks.loadEntityRelations"))
 
 		// Filter for block relations
 		const blockRelations = relations
@@ -283,13 +388,50 @@ export function getBlocks(entityId: string) {
 			blockRelations,
 			(relation) =>
 				Effect.gen(function* () {
-					const entity = yield* batching.loadEntity(relation.toEntityId)
+					const entity = yield* Effect.tryPromise({
+						try: () => context.entitiesLoader.load(relation.toEntityId),
+						catch: (error) =>
+							new BatchingError({
+								cause: error,
+								message: `Failed to batch load entity ${relation.toEntityId}: ${String(error)}`,
+							}),
+					}).pipe(
+						Effect.annotateSpans({entityId: relation.toEntityId}),
+						Effect.withSpan("getBlocks.loadEntity"),
+					)
+
 					if (!entity) return null
 
 					// Load entity relations and values in parallel
 					const [entityRelations, entityValues] = yield* Effect.all([
-						batching.loadEntityRelations(relation.toEntityId),
-						batching.loadEntityValues(relation.toEntityId),
+						Effect.tryPromise({
+							try: () =>
+								context.entityRelationsLoader.load({
+									entityId: relation.toEntityId,
+								}),
+							catch: (error) =>
+								new BatchingError({
+									cause: error,
+									message: `Failed to batch load entity relations for ${relation.toEntityId}: ${String(error)}`,
+								}),
+						}).pipe(
+							Effect.annotateSpans({entityId: relation.toEntityId}),
+							Effect.withSpan("getBlocks.loadEntityRelations"),
+						),
+						Effect.tryPromise({
+							try: () =>
+								context.entityValuesLoader.load({
+									entityId: relation.toEntityId,
+								}),
+							catch: (error) =>
+								new BatchingError({
+									cause: error,
+									message: `Failed to batch load entity values for ${relation.toEntityId}: ${String(error)}`,
+								}),
+						}).pipe(
+							Effect.annotateSpans({entityId: relation.toEntityId}),
+							Effect.withSpan("getBlocks.loadEntityValues"),
+						),
 					])
 
 					return {

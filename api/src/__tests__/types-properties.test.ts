@@ -1,4 +1,5 @@
 import {SystemIds} from "@graphprotocol/grc-20"
+import DataLoader from "dataloader"
 import {Effect, Layer} from "effect"
 import {v4 as uuid} from "uuid"
 import {afterEach, beforeEach, describe, expect, it} from "vitest"
@@ -6,16 +7,75 @@ import {DataType} from "../generated/graphql"
 import {getPropertiesForType, getPropertyRenderableType} from "../kg/resolvers/properties"
 import {getTypes} from "../kg/resolvers/types"
 import {Environment, make as makeEnvironment} from "../services/environment"
-import {Batching, make as makeBatching} from "../services/storage/dataloaders"
 import {entities, properties, relations, values} from "../services/storage/schema"
 import {make as makeStorage, Storage} from "../services/storage/storage"
+import type {GraphQLContext} from "../types"
 
 // Set up Effect layers like in the main application
 const EnvironmentLayer = Layer.effect(Environment, makeEnvironment)
 const StorageLayer = Layer.effect(Storage, makeStorage).pipe(Layer.provide(EnvironmentLayer))
-const BatchingLayer = Layer.effect(Batching, makeBatching).pipe(Layer.provide(StorageLayer))
-const layers = Layer.mergeAll(EnvironmentLayer, StorageLayer, BatchingLayer)
+const layers = Layer.mergeAll(EnvironmentLayer, StorageLayer)
 const provideDeps = Effect.provide(layers)
+
+// Create a mock GraphQL context with dataloaders for testing
+const createMockContext = (): GraphQLContext => {
+	return {
+		entitiesLoader: new DataLoader(async (ids: readonly string[]) => {
+			const storage = Effect.runSync(Storage.pipe(provideDeps))
+			const entities = await storage.use(async (client) => {
+				return await client.query.entities.findMany({
+					where: (entities, {inArray}) => inArray(entities.id, ids),
+				})
+			})
+
+			const entityMap = new Map(entities.map((e) => [e.id, e]))
+			return ids.map((id) => entityMap.get(id) ?? null)
+		}),
+		entityNamesLoader: new DataLoader(async (ids: readonly string[]) => {
+			return ids.map(() => null)
+		}),
+		entityDescriptionsLoader: new DataLoader(async (ids: readonly string[]) => {
+			return ids.map(() => null)
+		}),
+		entityValuesLoader: new DataLoader(async (keys: readonly any[]) => {
+			return keys.map(() => [])
+		}),
+		entityRelationsLoader: new DataLoader(async (keys: readonly any[]) => {
+			const storage = Effect.runSync(Storage.pipe(provideDeps))
+			return Promise.all(
+				keys.map(async (key) => {
+					const {entityId, spaceId} = key
+					const relations = await storage.use(async (client) => {
+						return await client.query.relations.findMany({
+							where: (relations, {eq}) => eq(relations.fromEntityId, entityId),
+						})
+					})
+
+					// Apply spaceId filter if provided
+					if (spaceId) {
+						return relations.filter((r) => r.spaceId === spaceId)
+					}
+
+					return relations
+				}),
+			)
+		}),
+		propertiesLoader: new DataLoader(async (ids: readonly string[]) => {
+			const storage = Effect.runSync(Storage.pipe(provideDeps))
+			const props = await storage.use(async (client) => {
+				return await client.query.properties.findMany({
+					where: (properties, {inArray}) => inArray(properties.id, ids),
+				})
+			})
+
+			const propsMap = new Map(props.map((p) => [p.id, p]))
+			return ids.map((id) => propsMap.get(id) ?? null)
+		}),
+		entityBacklinksLoader: new DataLoader(async (keys: readonly any[]) => {
+			return keys.map(() => [])
+		}),
+	}
+}
 
 // Constants for renderable type testing
 const RENDERABLE_TYPE_RELATION_ID = "2316bbe1-c76f-4635-83f2-3e03b4f1fe46"
@@ -334,7 +394,9 @@ describe("Types and Properties Integration Tests", () => {
 		})
 
 		it("should return correct data types", async () => {
-			const result = await Effect.runPromise(provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 0})))
+			const result = await Effect.runPromise(
+				provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 0}, createMockContext())),
+			)
 
 			const textProperty = result.find((r) => r.id === PROPERTY_ID_1)
 			const numberProperty = result.find((r) => r.id === PROPERTY_ID_2)
@@ -344,7 +406,9 @@ describe("Types and Properties Integration Tests", () => {
 		})
 
 		it("should return different property types", async () => {
-			const result = await Effect.runPromise(provideDeps(getPropertiesForType(TYPE_ID_2, {limit: 10, offset: 0})))
+			const result = await Effect.runPromise(
+				provideDeps(getPropertiesForType(TYPE_ID_2, {limit: 10, offset: 0}, createMockContext())),
+			)
 
 			expect(result).toHaveLength(3)
 			const propertyIds = result.map((r) => r.id)
@@ -359,11 +423,15 @@ describe("Types and Properties Integration Tests", () => {
 		it("should filter properties by spaceId", async () => {
 			const result = await Effect.runPromise(
 				provideDeps(
-					getPropertiesForType(TYPE_ID_1, {
-						limit: 10,
-						offset: 0,
-						spaceId: TEST_SPACE_ID,
-					}),
+					getPropertiesForType(
+						TYPE_ID_1,
+						{
+							limit: 10,
+							offset: 0,
+							spaceId: TEST_SPACE_ID,
+						},
+						createMockContext(),
+					),
 				),
 			)
 
@@ -376,11 +444,15 @@ describe("Types and Properties Integration Tests", () => {
 		it("should return empty array for different spaceId", async () => {
 			const result = await Effect.runPromise(
 				provideDeps(
-					getPropertiesForType(TYPE_ID_1, {
-						limit: 10,
-						offset: 0,
-						spaceId: TEST_SPACE_ID_2,
-					}),
+					getPropertiesForType(
+						TYPE_ID_1,
+						{
+							limit: 10,
+							offset: 0,
+							spaceId: TEST_SPACE_ID_2,
+						},
+						createMockContext(),
+					),
 				),
 			)
 
@@ -393,11 +465,15 @@ describe("Types and Properties Integration Tests", () => {
 		it("should return properties for type in different space", async () => {
 			const result = await Effect.runPromise(
 				provideDeps(
-					getPropertiesForType(TYPE_ID_3, {
-						limit: 10,
-						offset: 0,
-						spaceId: TEST_SPACE_ID_2,
-					}),
+					getPropertiesForType(
+						TYPE_ID_3,
+						{
+							limit: 10,
+							offset: 0,
+							spaceId: TEST_SPACE_ID_2,
+						},
+						createMockContext(),
+					),
 				),
 			)
 
@@ -412,7 +488,9 @@ describe("Types and Properties Integration Tests", () => {
 		})
 
 		it("should return empty array for non-existent type", async () => {
-			const result = await Effect.runPromise(provideDeps(getPropertiesForType(uuid(), {limit: 10, offset: 0})))
+			const result = await Effect.runPromise(
+				provideDeps(getPropertiesForType(uuid(), {limit: 10, offset: 0}, createMockContext())),
+			)
 
 			expect(result).toHaveLength(2)
 			expect(result.map((r) => r.id).sort()).toEqual(
@@ -450,7 +528,7 @@ describe("Types and Properties Integration Tests", () => {
 			)
 
 			const result = await Effect.runPromise(
-				provideDeps(getPropertiesForType(emptyTypeId, {limit: 10, offset: 0})),
+				provideDeps(getPropertiesForType(emptyTypeId, {limit: 10, offset: 0}, createMockContext())),
 			)
 
 			expect(result).toHaveLength(2)
@@ -462,11 +540,15 @@ describe("Types and Properties Integration Tests", () => {
 		it("should handle non-existent spaceId", async () => {
 			const result = await Effect.runPromise(
 				provideDeps(
-					getPropertiesForType(TYPE_ID_1, {
-						limit: 10,
-						offset: 0,
-						spaceId: uuid(),
-					}),
+					getPropertiesForType(
+						TYPE_ID_1,
+						{
+							limit: 10,
+							offset: 0,
+							spaceId: uuid(),
+						},
+						createMockContext(),
+					),
 				),
 			)
 
@@ -481,20 +563,24 @@ describe("Types and Properties Integration Tests", () => {
 		it("should map all supported data types correctly", async () => {
 			// We have Text, Number, Checkbox, Point in our test data
 			const type1Props = await Effect.runPromise(
-				provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 0})),
+				provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 0}, createMockContext())),
 			)
 
 			const type2Props = await Effect.runPromise(
-				provideDeps(getPropertiesForType(TYPE_ID_2, {limit: 10, offset: 0})),
+				provideDeps(getPropertiesForType(TYPE_ID_2, {limit: 10, offset: 0}, createMockContext())),
 			)
 
 			const type3Props = await Effect.runPromise(
 				provideDeps(
-					getPropertiesForType(TYPE_ID_3, {
-						limit: 10,
-						offset: 0,
-						spaceId: TEST_SPACE_ID_2,
-					}),
+					getPropertiesForType(
+						TYPE_ID_3,
+						{
+							limit: 10,
+							offset: 0,
+							spaceId: TEST_SPACE_ID_2,
+						},
+						createMockContext(),
+					),
 				),
 			)
 
@@ -558,7 +644,9 @@ describe("Types and Properties Integration Tests", () => {
 				),
 			)
 
-			const result = await Effect.runPromise(provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 0})))
+			const result = await Effect.runPromise(
+				provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 0}, createMockContext())),
+			)
 
 			const timeProp = result.find((p) => p.id === timePropId)
 			const relationProp = result.find((p) => p.id === relationPropId)
@@ -582,14 +670,16 @@ describe("Types and Properties Integration Tests", () => {
 		})
 
 		it("should handle properties query with limit 0", async () => {
-			const result = await Effect.runPromise(provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 0, offset: 0})))
+			const result = await Effect.runPromise(
+				provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 0, offset: 0}, createMockContext())),
+			)
 
 			expect(result).toHaveLength(0)
 		})
 
 		it("should handle properties query with large offset", async () => {
 			const result = await Effect.runPromise(
-				provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 1000})),
+				provideDeps(getPropertiesForType(TYPE_ID_1, {limit: 10, offset: 1000}, createMockContext())),
 			)
 
 			expect(result).toHaveLength(0)
@@ -598,25 +688,29 @@ describe("Types and Properties Integration Tests", () => {
 		describe("Property Renderable Type", () => {
 			it("should return Image renderable type for properties with IMAGE relation", async () => {
 				const result = await Effect.runPromise(
-					provideDeps(getPropertyRenderableType(RENDERABLE_PROPERTY_ID_IMAGE)),
+					provideDeps(getPropertyRenderableType(RENDERABLE_PROPERTY_ID_IMAGE, createMockContext())),
 				)
 				expect(result).toBe(SystemIds.IMAGE)
 			})
 
 			it("should return URL renderable type for properties with URL relation", async () => {
 				const result = await Effect.runPromise(
-					provideDeps(getPropertyRenderableType(RENDERABLE_PROPERTY_ID_URL)),
+					provideDeps(getPropertyRenderableType(RENDERABLE_PROPERTY_ID_URL, createMockContext())),
 				)
 				expect(result).toBe(SystemIds.URL)
 			})
 
 			it("should return null for properties without renderable type relation", async () => {
-				const result = await Effect.runPromise(provideDeps(getPropertyRenderableType(PROPERTY_ID_1)))
+				const result = await Effect.runPromise(
+					provideDeps(getPropertyRenderableType(PROPERTY_ID_1, createMockContext())),
+				)
 				expect(result).toBeNull()
 			})
 
 			it("should return null for non-existent property", async () => {
-				const result = await Effect.runPromise(provideDeps(getPropertyRenderableType(uuid())))
+				const result = await Effect.runPromise(
+					provideDeps(getPropertyRenderableType(uuid(), createMockContext())),
+				)
 				expect(result).toBeNull()
 			})
 		})

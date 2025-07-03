@@ -1,11 +1,10 @@
 import SimplifyInflectionPlugin from "@graphile-contrib/pg-simplify-inflector"
-import {createYoga} from "graphql-yoga"
+import {useResponseCache} from "@graphql-yoga/plugin-response-cache"
+import {createYoga, useExecutionCancellation} from "graphql-yoga"
 import {Hono} from "hono"
 import {Pool} from "pg"
 import {createPostGraphileSchema, withPostGraphileContext} from "postgraphile"
 import ConnectionFilterPlugin from "postgraphile-plugin-connection-filter"
-
-const app = new Hono()
 
 // Create PostgreSQL pool
 const pgPool = new Pool({
@@ -45,6 +44,13 @@ export const graphqlServer = createYoga({
 	graphiql: {
 		title: "Geo API",
 	},
+	plugins: [
+		useExecutionCancellation(),
+		useResponseCache({
+			session: () => null,
+			ttl: 10_000, // 10 seconds
+		}),
+	],
 	context: async ({request}) => {
 		// Create a promise that will resolve with the PostGraphile context
 		const contextPromise = new Promise((resolve) => {
@@ -67,20 +73,4 @@ export const graphqlServer = createYoga({
 
 		return await contextPromise
 	},
-})
-
-// Custom handler that ensures proper cleanup
-app.all("/graphql", async (c) => {
-	try {
-		const response = await yoga.fetch(c.req.raw)
-		return response
-	} catch (error) {
-		console.error("GraphQL execution error:", error)
-		return new Response("Internal Server Error", {status: 500})
-	}
-})
-
-// Health check
-app.get("/health", (c) => {
-	return c.json({status: "ok"})
 })

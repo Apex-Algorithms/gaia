@@ -1,5 +1,6 @@
 import { Duration, Effect, Either, Layer, Schedule, Schema } from "effect";
 import { Hono } from "hono";
+import { compress } from "hono/compress";
 import { cors } from "hono/cors";
 import { health } from "./src/health";
 import { graphqlServer } from "./src/kg/postgraphile";
@@ -13,6 +14,13 @@ import { make as makeStorage, Storage } from "./src/services/storage/storage";
 import { getPublishEditCalldata } from "./src/utils/calldata";
 import { deploySpace } from "./src/utils/deploy-space";
 
+/**
+ * Currently hand-rolling a compression polyfill until Bun implements
+ * CompressionStream in the runtime.
+ * https://github.com/oven-sh/bun/issues/1723
+ */
+import "./src/compression-polyfill"
+
 const EnvironmentLayer = Layer.effect(Environment, makeEnvironment);
 const StorageLayer = Layer.effect(Storage, makeStorage).pipe(
 	Layer.provide(EnvironmentLayer),
@@ -22,6 +30,11 @@ const provideDeps = Effect.provide(layers);
 
 const app = new Hono();
 app.use("*", cors());
+app.use(
+	compress({
+		encoding: "gzip",
+	}),
+);
 
 app.route("/health", health);
 
