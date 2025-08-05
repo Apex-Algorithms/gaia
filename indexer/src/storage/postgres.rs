@@ -7,8 +7,8 @@ use crate::models::{
     entities::EntityItem,
     membership::{EditorItem, MemberItem},
     properties::{
-        DataType, PropertyItem, DATA_TYPE_CHECKBOX, DATA_TYPE_NUMBER, DATA_TYPE_POINT,
-        DATA_TYPE_RELATION, DATA_TYPE_TEXT, DATA_TYPE_TIME,
+        DataType, PropertyItem, DATA_TYPE_BOOLEAN, DATA_TYPE_NUMBER, DATA_TYPE_POINT,
+        DATA_TYPE_RELATION, DATA_TYPE_STRING, DATA_TYPE_TIME,
     },
     relations::{SetRelationItem, UnsetRelationItem, UpdateRelationItem},
     spaces::{SpaceItem, SpaceType},
@@ -24,17 +24,6 @@ struct EntityRow {
     created_at_block: String,
     updated_at: String,
     updated_at_block: String,
-}
-
-#[derive(sqlx::FromRow)]
-struct ValueRow {
-    id: String,
-    property_id: Uuid,
-    entity_id: Uuid,
-    space_id: String,
-    value: Option<String>,
-    language: Option<String>,
-    unit: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]
@@ -89,30 +78,50 @@ impl PostgresStorage {
     }
 
     pub async fn get_value(&self, triple_id: &String) -> Result<ValueOp, StorageError> {
-        let query = sqlx::query_as!(
-            ValueRow,
-            "SELECT id, property_id, entity_id, space_id, value, language, unit FROM values WHERE id = $1",
-            triple_id
+        // Use the generic query instead of query_as to avoid type conversion issues
+        let row = sqlx::query(
+            r#"SELECT
+                id, property_id, entity_id, space_id,
+                language, unit, string,
+                number::float8 as number, boolean, time, point
+                FROM values WHERE id = $1"#,
         )
+        .bind(triple_id)
         .fetch_one(&self.pool)
         .await?;
 
-        let id = Uuid::parse_str(&query.id).map_err(|e| {
+        let id = Uuid::parse_str(row.try_get::<&str, _>("id")?).map_err(|e| {
             sqlx::Error::Decode(format!("Invalid UUID format for id: {}", e).into())
         })?;
 
-        let space_id = Uuid::parse_str(&query.space_id).map_err(|e| {
-            sqlx::Error::Decode(format!("Invalid UUID format for space_id: {}", e).into())
-        })?;
+        let property_id: Uuid = row.try_get("property_id")?;
+        let entity_id: Uuid = row.try_get("entity_id")?;
+
+        let space_id: Uuid = row.try_get("space_id")?;
+
+        let language: Option<String> = row.try_get("language")?;
+        let unit: Option<String> = row.try_get("unit")?;
+        let text: Option<String> = row.try_get("string")?;
+
+        let number: Option<f64> = row.try_get("number")?;
+
+        let boolean: Option<bool> = row.try_get("boolean")?;
+        let time: Option<String> = row.try_get("time")?;
+        let point: Option<String> = row.try_get("point")?;
 
         Ok(ValueOp {
             id,
-            property_id: query.property_id,
-            entity_id: query.entity_id,
+            property_id,
+            entity_id,
             space_id,
-            value: query.value,
-            language: query.language,
-            unit: query.unit,
+
+            language,
+            unit,
+            string: text,
+            number,
+            boolean,
+            time,
+            point,
             change_type: ValueChangeType::SET,
         })
     }
@@ -291,23 +300,35 @@ impl StorageBackend for PostgresStorage {
         let mut entity_ids = Vec::with_capacity(values.len());
         let mut property_ids = Vec::with_capacity(values.len());
         let mut space_ids = Vec::with_capacity(values.len());
-        let mut value_values = Vec::with_capacity(values.len());
         let mut languages = Vec::with_capacity(values.len());
         let mut units = Vec::with_capacity(values.len());
+        // Type-specific columns
+        let mut text_values = Vec::with_capacity(values.len());
+        let mut number_values = Vec::with_capacity(values.len());
+        let mut boolean_values = Vec::with_capacity(values.len());
+        let mut time_values = Vec::with_capacity(values.len());
+        let mut point_values = Vec::with_capacity(values.len());
 
         for prop in values {
             ids.push(prop.id.to_string());
             entity_ids.push(&prop.entity_id);
             property_ids.push(&prop.property_id);
-            space_ids.push(prop.space_id.to_string());
-            value_values.push(prop.value.as_deref().unwrap_or(""));
+            space_ids.push(&prop.space_id);
             languages.push(&prop.language);
             units.push(&prop.unit);
+
+            // Add type-specific values
+            text_values.push(prop.string.as_deref());
+            number_values.push(prop.number);
+            boolean_values.push(prop.boolean);
+            time_values.push(prop.time.as_deref());
+            point_values.push(prop.point.as_deref());
         }
 
         let query = r#"
                 INSERT INTO values (
-                    id, entity_id, property_id, space_id, value, language, unit
+                    id, entity_id, property_id, space_id, language, unit,
+                    string, number, boolean, time, point
                 )
                 SELECT * FROM UNNEST(
                     $1::text[],
@@ -316,12 +337,20 @@ impl StorageBackend for PostgresStorage {
                     $4::uuid[],
                     $5::text[],
                     $6::text[],
-                    $7::text[]
+                    $7::text[],
+                    $8::numeric[],
+                    $9::boolean[],
+                    $10::text[],
+                    $11::text[]
                 )
                 ON CONFLICT (id) DO UPDATE SET
-                    value = EXCLUDED.value,
                     language = EXCLUDED.language,
-                    unit = EXCLUDED.unit
+                    unit = EXCLUDED.unit,
+                    string = EXCLUDED.string,
+                    number = EXCLUDED.number,
+                    boolean = EXCLUDED.boolean,
+                    time = EXCLUDED.time,
+                    point = EXCLUDED.point
             "#;
 
         sqlx::query(query)
@@ -329,9 +358,13 @@ impl StorageBackend for PostgresStorage {
             .bind(&entity_ids)
             .bind(&property_ids)
             .bind(&space_ids)
-            .bind(&value_values)
             .bind(&languages)
             .bind(&units)
+            .bind(&text_values)
+            .bind(&number_values)
+            .bind(&boolean_values)
+            .bind(&time_values)
+            .bind(&point_values)
             .execute(&mut **tx)
             .await?;
 
@@ -782,9 +815,9 @@ impl StorageBackend for PostgresStorage {
 
 fn string_to_data_type(s: &str) -> Option<DataType> {
     match s {
-        DATA_TYPE_TEXT => Some(DataType::Text),
+        DATA_TYPE_STRING => Some(DataType::String),
         DATA_TYPE_NUMBER => Some(DataType::Number),
-        DATA_TYPE_CHECKBOX => Some(DataType::Checkbox),
+        DATA_TYPE_BOOLEAN => Some(DataType::Boolean),
         DATA_TYPE_TIME => Some(DataType::Time),
         DATA_TYPE_POINT => Some(DataType::Point),
         DATA_TYPE_RELATION => Some(DataType::Relation),

@@ -2,8 +2,12 @@ use indexer_utils::id;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use uuid::Uuid;
 use wire::pb::grc20::{op::Payload, options, Edit, Op};
+
+use crate::cache::properties_cache::ImmutableCache;
+use crate::validators::{validate_by_datatype, ValidatedValue};
 
 #[derive(Clone)]
 pub enum ValueChangeType {
@@ -18,21 +22,32 @@ pub struct ValueOp {
     pub entity_id: Uuid,
     pub property_id: Uuid,
     pub space_id: Uuid,
-    pub value: Option<String>,
     pub language: Option<String>,
     pub unit: Option<String>,
+    // Data type specific fields
+    pub string: Option<String>,
+    pub number: Option<f64>,
+    pub boolean: Option<bool>,
+    pub time: Option<String>,
+    pub point: Option<String>,
 }
 
 pub struct ValuesModel;
 
 impl ValuesModel {
-    pub fn map_edit_to_values(edit: &Edit, space_id: &Uuid) -> (Vec<ValueOp>, Vec<Uuid>) {
-        let mut triple_ops: Vec<ValueOp> = Vec::new();
+    pub async fn map_edit_to_values<C>(
+        edit: &Edit,
+        space_id: &Uuid,
+        cache: &Arc<C>,
+    ) -> (Vec<ValueOp>, Vec<Uuid>)
+    where
+        C: ImmutableCache + Send + Sync + 'static,
+    {
+        let mut value_ops: Vec<ValueOp> = Vec::new();
 
         for op in &edit.ops {
-            for op in value_op_from_op(op, space_id) {
-                triple_ops.push(op);
-            }
+            let mut ops = value_op_from_op(op, space_id, cache).await;
+            value_ops.append(&mut ops);
         }
 
         // A single edit may have multiple CREATE, UPDATE, and UNSET value ops applied
@@ -41,7 +56,7 @@ impl ValuesModel {
         //
         // Ordering of these to-be-squashed ops matters. We use what the order is in
         // the edit.
-        let squashed = squash_values(&triple_ops);
+        let squashed = squash_values(&value_ops);
 
         let (created, deleted): (Vec<ValueOp>, Vec<ValueOp>) = squashed
             .into_iter()
@@ -51,10 +66,10 @@ impl ValuesModel {
     }
 }
 
-fn squash_values(triple_ops: &Vec<ValueOp>) -> Vec<ValueOp> {
+fn squash_values(value_ops: &Vec<ValueOp>) -> Vec<ValueOp> {
     let mut hash = HashMap::new();
 
-    for op in triple_ops {
+    for op in value_ops {
         hash.insert(op.id, op.clone());
     }
 
@@ -78,7 +93,10 @@ fn derive_value_id(entity_id: &Uuid, property_id: &Uuid, space_id: &Uuid) -> Uui
     Uuid::from_bytes(bytes)
 }
 
-fn value_op_from_op(op: &Op, space_id: &Uuid) -> Vec<ValueOp> {
+async fn value_op_from_op<C>(op: &Op, space_id: &Uuid, cache: &Arc<C>) -> Vec<ValueOp>
+where
+    C: ImmutableCache + Send + Sync + 'static,
+{
     let mut values = Vec::new();
 
     if let Some(payload) = &op.payload {
@@ -105,16 +123,27 @@ fn value_op_from_op(op: &Op, space_id: &Uuid) -> Vec<ValueOp> {
 
                             let (language, unit) = extract_options(&value.options);
 
-                            values.push(ValueOp {
+                            let base_op = ValueOp {
                                 id: derive_value_id(&entity_id, &property_id, space_id),
                                 change_type: ValueChangeType::SET,
                                 property_id,
                                 entity_id,
                                 space_id: space_id.clone(),
-                                value: Some(value.value.clone()),
                                 language,
                                 unit,
-                            });
+                                string: None,
+                                number: None,
+                                boolean: None,
+                                time: None,
+                                point: None,
+                            };
+
+                            if let Some(populated_op) =
+                                populate_value_fields_by_datatype(base_op, &value.value, cache)
+                                    .await
+                            {
+                                values.push(populated_op);
+                            }
                         }
                     }
                     Err(_) => tracing::error!(
@@ -151,9 +180,13 @@ fn value_op_from_op(op: &Op, space_id: &Uuid) -> Vec<ValueOp> {
                                 property_id,
                                 entity_id,
                                 space_id: space_id.clone(),
-                                value: None,
                                 language: None,
                                 unit: None,
+                                string: None,
+                                number: None,
+                                boolean: None,
+                                time: None,
+                                point: None,
                             });
                         }
                     },
@@ -168,6 +201,177 @@ fn value_op_from_op(op: &Op, space_id: &Uuid) -> Vec<ValueOp> {
     }
 
     return values;
+}
+
+/// Validates and populates the appropriate type-specific field based on data type.
+/// Returns None if validation fails, indicating the value should be filtered out.
+pub async fn populate_value_fields_by_datatype<C>(
+    mut base_op: ValueOp,
+    raw_value: &str,
+    cache: &Arc<C>,
+) -> Option<ValueOp>
+where
+    C: ImmutableCache + Send + Sync + 'static,
+{
+    // Only try to populate typed fields for SET operations with values
+    if !matches!(base_op.change_type, ValueChangeType::SET) {
+        return Some(base_op);
+    }
+
+    // Try to get the data type from cache
+    if let Ok(data_type) = cache.get(&base_op.property_id).await {
+        match validate_by_datatype(data_type, raw_value) {
+            Ok(validated_value) => {
+                // Set the appropriate field based on the validated value
+                match validated_value {
+                    ValidatedValue::Text(text) => {
+                        // Even if it's a relation type, store as string
+                        // Relations will be filtered out later
+                        base_op.string = Some(text);
+                    }
+                    ValidatedValue::Number(num) => {
+                        base_op.number = Some(num);
+                    }
+                    ValidatedValue::Checkbox(bool_val) => {
+                        base_op.boolean = Some(bool_val);
+                    }
+                    ValidatedValue::Time(_) => {
+                        base_op.time = Some(raw_value.to_string());
+                    }
+                    ValidatedValue::Point(_) => {
+                        base_op.point = Some(raw_value.to_string());
+                    }
+                }
+
+                return Some(base_op);
+            }
+            Err(error) => {
+                // If validation fails, log the error and filter out the value
+                tracing::warn!(
+                    "Validation failed for property {} with value '{}': {}",
+                    base_op.property_id,
+                    raw_value,
+                    error
+                );
+                return None;
+            }
+        }
+    }
+    // If property not found in cache, filter out the value
+    else {
+        tracing::debug!(
+            "Property {} not found in cache, skipping value validation",
+            base_op.property_id
+        );
+        return None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cache::properties_cache::{ImmutableCache, PropertiesCacheError};
+    use crate::models::properties::DataType;
+    use std::collections::HashMap;
+    use tokio::runtime::Runtime;
+    use tokio::sync::RwLock;
+
+    // Mock cache implementation for testing
+    #[derive(Default)]
+    struct MockPropertiesCache {
+        inner: Arc<RwLock<HashMap<Uuid, DataType>>>,
+    }
+
+    impl MockPropertiesCache {
+        pub fn new() -> Self {
+            Self {
+                inner: Arc::new(RwLock::new(HashMap::new())),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl ImmutableCache for MockPropertiesCache {
+        async fn insert(&self, key: &Uuid, value: DataType) {
+            let mut write = self.inner.write().await;
+            write.insert(*key, value);
+        }
+
+        async fn get(&self, key: &Uuid) -> Result<DataType, PropertiesCacheError> {
+            let read = self.inner.read().await;
+            match read.get(key) {
+                Some(value) => Ok(*value),
+                None => Err(PropertiesCacheError::PropertyNotFoundError),
+            }
+        }
+    }
+
+    #[test]
+    fn test_populate_value_fields_by_datatype() {
+        let rt = Runtime::new().unwrap();
+        let cache = Arc::new(MockPropertiesCache::new());
+        let property_id = Uuid::new_v4();
+        let entity_id = Uuid::new_v4();
+        let space_id = Uuid::new_v4();
+
+        // Set up cache with different property types
+        rt.block_on(async {
+            cache.insert(&property_id, DataType::Number).await;
+        });
+
+        // Test valid number
+        let valid_number_op = ValueOp {
+            id: Uuid::new_v4(),
+            change_type: ValueChangeType::SET,
+            entity_id,
+            property_id,
+            space_id,
+            language: None,
+            unit: None,
+            string: None,
+            number: None,
+            boolean: None,
+            time: None,
+            point: None,
+        };
+
+        // Test invalid number
+        let invalid_number_op = ValueOp {
+            id: Uuid::new_v4(),
+            change_type: ValueChangeType::SET,
+            entity_id,
+            property_id,
+            space_id,
+            language: None,
+            unit: None,
+            string: None,
+            number: None,
+            boolean: None,
+            time: None,
+            point: None,
+        };
+
+        // Validate results
+        let valid_result = rt.block_on(populate_value_fields_by_datatype(
+            valid_number_op,
+            "123.45",
+            &cache,
+        ));
+        let invalid_result = rt.block_on(populate_value_fields_by_datatype(
+            invalid_number_op,
+            "not-a-number",
+            &cache,
+        ));
+
+        // Valid number should be returned with number field populated
+        assert!(valid_result.is_some());
+        let valid_op = valid_result.unwrap();
+        assert!(valid_op.number.is_some());
+        assert_eq!(valid_op.number.unwrap(), 123.45);
+
+        // Invalid number should return None (filtered out)
+        assert!(invalid_result.is_none());
+    }
 }
 
 fn extract_options(options: &Option<wire::pb::grc20::Options>) -> (Option<String>, Option<String>) {

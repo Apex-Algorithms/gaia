@@ -250,7 +250,7 @@ async fn main() -> Result<(), IndexingError> {
             property.id,
             Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c1").unwrap()
         );
-        assert_eq!(property.data_type, DataType::Text);
+        assert_eq!(property.data_type, DataType::String);
     }
 
     {
@@ -381,7 +381,7 @@ async fn test_validation_rejects_invalid_checkbox() -> Result<(), IndexingError>
         .get_property(&property_id.to_string())
         .await
         .unwrap();
-    assert_eq!(property.data_type, DataType::Checkbox);
+    assert_eq!(property.data_type, DataType::Boolean);
 
     // Verify the invalid value was NOT stored
     let entity_id = Uuid::parse_str("77777777-7777-7777-7777-777777777777").unwrap();
@@ -611,7 +611,7 @@ async fn test_validation_allows_valid_data_mixed_with_invalid() -> Result<(), In
         .get_property(&text_prop_id.to_string())
         .await
         .unwrap();
-    assert_eq!(text_property.data_type, DataType::Text);
+    assert_eq!(text_property.data_type, DataType::String);
 
     let space_id = Uuid::parse_str("21098765-2109-2109-2109-210987654321").unwrap();
 
@@ -629,10 +629,10 @@ async fn test_validation_allows_valid_data_mixed_with_invalid() -> Result<(), In
             .get_value(&number_value_id.to_string())
             .await
             .unwrap();
-        assert_eq!(number_value.value, Some("42.5".to_string()));
+        assert_eq!(number_value.number, Some(42.5));
 
         let text_value = storage.get_value(&text_value_id.to_string()).await.unwrap();
-        assert_eq!(text_value.value, Some("Valid text".to_string()));
+        assert_eq!(text_value.string, Some("Valid text".to_string()));
     }
 
     // Check second entity - only valid text should be stored, invalid number should be rejected
@@ -653,7 +653,7 @@ async fn test_validation_allows_valid_data_mixed_with_invalid() -> Result<(), In
 
         // Valid text should be stored
         let text_value = storage.get_value(&text_value_id.to_string()).await.unwrap();
-        assert_eq!(text_value.value, Some("Another valid text".to_string()));
+        assert_eq!(text_value.string, Some("Another valid text".to_string()));
     }
 
     Ok(())
@@ -745,7 +745,7 @@ async fn test_property_no_overwrite() -> Result<(), IndexingError> {
             property.id,
             Uuid::parse_str("aba7b810-9dad-11d1-80b4-00c04fd430c1").unwrap()
         );
-        assert_eq!(property.data_type, DataType::Text);
+        assert_eq!(property.data_type, DataType::String);
     }
 
     // Process second edit (should not overwrite)
@@ -771,7 +771,7 @@ async fn test_property_no_overwrite() -> Result<(), IndexingError> {
             property.id,
             Uuid::parse_str("aba7b810-9dad-11d1-80b4-00c04fd430c1").unwrap()
         );
-        assert_eq!(property.data_type, DataType::Text); // Should still be Text, not Number
+        assert_eq!(property.data_type, DataType::String); // Should still be Text, not Number
     }
 
     Ok(())
@@ -838,7 +838,7 @@ async fn test_property_squashing() -> Result<(), IndexingError> {
             property.id,
             Uuid::parse_str("bba7b810-9dad-11d1-80b4-00c04fd430c1").unwrap()
         );
-        assert_eq!(property.data_type, DataType::Checkbox); // Should be Checkbox, not Text or Number
+        assert_eq!(property.data_type, DataType::Boolean); // Should be Checkbox, not Text or Number
     }
 
     // Verify that the different property was not affected by squashing

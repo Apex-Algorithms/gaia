@@ -83,7 +83,12 @@ impl TestStorage {
         entity_id: &Uuid,
     ) -> Result<Vec<ValueRow>, IndexingError> {
         let rows = sqlx::query!(
-            "SELECT id, property_id, entity_id, space_id, value, language, unit FROM values WHERE entity_id = $1",
+            r#"SELECT
+                id, property_id, entity_id, space_id,
+                language, unit, string,
+                number::text as number,
+                boolean, time, point
+                FROM values WHERE entity_id = $1"#,
             entity_id
         )
         .fetch_all(self.get_pool())
@@ -93,13 +98,17 @@ impl TestStorage {
         Ok(rows
             .into_iter()
             .map(|row| ValueRow {
-                id: row.id,
+                id: Uuid::parse_str(&row.id).unwrap(),
                 property_id: row.property_id,
                 entity_id: row.entity_id,
                 space_id: row.space_id,
-                value: row.value,
                 language: row.language,
                 unit: row.unit,
+                string: row.string,
+                number: row.number.as_ref().and_then(|n| n.parse::<f64>().ok()),
+                boolean: row.boolean,
+                time: row.time,
+                point: row.point,
             })
             .collect())
     }
@@ -182,13 +191,17 @@ pub struct EntityRow {
 
 #[derive(Debug, Clone)]
 pub struct ValueRow {
-    pub id: String,
+    pub id: Uuid,
     pub property_id: Uuid,
     pub entity_id: Uuid,
     pub space_id: Uuid,
-    pub value: String,
     pub language: Option<String>,
     pub unit: Option<String>,
+    pub string: Option<String>,
+    pub number: Option<f64>,
+    pub boolean: Option<bool>,
+    pub time: Option<String>,
+    pub point: Option<String>,
 }
 
 #[derive(Debug, Clone)]
