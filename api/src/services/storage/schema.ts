@@ -270,6 +270,28 @@ export const subspaces = pgTable(
 	],
 );
 
+/**
+ * Governance actions
+ */
+export const proposals = pgTable("proposals",
+  {
+    proposalId: uuid().primaryKey(),
+    pluginAddress: varchar("pluginAddress", { length: 42 }).notNull(),
+    creator: varchar("creator", { length: 42 }).notNull(),
+    startTime: bigint("start_time", { mode: "number" }).notNull(),
+    endTime: bigint("end_time", { mode: "number" }).notNull(),
+    daoAddress: text().notNull().references(() => spaces.daoAddress),
+    spaceId: uuid().notNull().references(() => spaces.id)
+  },
+  (table) => [
+    index("proposals_space_id_idx").on(table.spaceId),
+    index("proposals_creator_idx").on(table.creator),
+    index("proposals_start_time_idx").on(table.startTime),
+    index("proposals_end_time_idx").on(table.endTime),
+    index("proposals_space_time_idx").on(table.spaceId, table.startTime, table.endTime),
+  ]
+)
+
 export const entityForeignValues = drizzleRelations(
 	entities,
 	({ many, one }) => ({

@@ -50,6 +50,13 @@
       "when": 1758046054558,
       "tag": "0006_big_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1758219178747,
+      "tag": "0007_noisy_deathbird",
+      "breakpoints": true
     }
   ]
 }
