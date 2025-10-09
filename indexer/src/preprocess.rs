@@ -14,7 +14,8 @@ use wire::pb::chain::GeoOutput;
 use crate::{
     cache::{postgres::PostgresCache, CacheBackend, PreprocessedEdit},
     error::IndexingError,
-    AddedMember, AddedSubspace, CreatedSpace, KgData, PersonalSpace, PublicSpace, RemovedSubspace,
+    AddedMember, AddedSubspace, CreatedSpace, KgData, PersonalSpace, PublicSpace, RemovedMember,
+    RemovedSubspace,
 };
 
 /// Matches spaces with their corresponding plugins based on DAO address
@@ -132,6 +133,28 @@ pub fn map_subspaces_removed(
         .map(|s| RemovedSubspace {
             dao_address: s.dao_address.clone(),
             subspace_address: s.subspace.clone(),
+        })
+        .collect()
+}
+
+/// Maps member removed events to RemovedMember structs
+pub fn map_members_removed(members: &[wire::pb::chain::MemberRemoved]) -> Vec<RemovedMember> {
+    members
+        .iter()
+        .map(|m| RemovedMember {
+            dao_address: m.dao_address.clone(),
+            editor_address: m.member_address.clone(),
+        })
+        .collect()
+}
+
+/// Maps editor removed events to RemovedMember structs
+pub fn map_editors_removed(editors: &[wire::pb::chain::EditorRemoved]) -> Vec<RemovedMember> {
+    editors
+        .iter()
+        .map(|e| RemovedMember {
+            dao_address: e.dao_address.clone(),
+            editor_address: e.editor_address.clone(),
         })
         .collect()
 }
@@ -282,14 +305,17 @@ pub async fn preprocess_block_scoped_data(
 
     let added_subspaces = map_subspaces_added(&geo.subspaces_added);
     let removed_subspaces = map_subspaces_removed(&geo.subspaces_removed);
+    
+    let removed_members = map_members_removed(&geo.members_removed);
+    let removed_editors = map_editors_removed(&geo.editors_removed);
 
     let kg_data = KgData {
         edits: final_edits.clone(),
         spaces: created_spaces.clone(),
         added_editors: added_editors.clone(),
         added_members: added_members.clone(),
-        removed_editors: vec![],
-        removed_members: vec![],
+        removed_editors: removed_editors.clone(),
+        removed_members: removed_members.clone(),
         added_subspaces: added_subspaces.clone(),
         removed_subspaces: removed_subspaces.clone(),
         block: block_metadata,
@@ -300,6 +326,8 @@ pub async fn preprocess_block_scoped_data(
         space_count = kg_data.spaces.len(),
         editor_count = kg_data.added_editors.len(),
         member_count = kg_data.added_members.len(),
+        removed_editor_count = kg_data.removed_editors.len(),
+        removed_member_count = kg_data.removed_members.len(),
         subspace_added_count = kg_data.added_subspaces.len(),
         subspace_removed_count = kg_data.removed_subspaces.len(),
         "Preprocessed block data"
@@ -400,6 +428,30 @@ mod tests {
         wire::pb::chain::SubspaceRemoved {
             dao_address: dao_address.to_string(),
             subspace: subspace.to_string(),
+            plugin_address: "plugin".to_string(),
+            change_type: "0".to_string(),
+        }
+    }
+
+    fn create_test_member_removed(
+        dao_address: &str,
+        member_address: &str,
+    ) -> wire::pb::chain::MemberRemoved {
+        wire::pb::chain::MemberRemoved {
+            dao_address: dao_address.to_string(),
+            member_address: member_address.to_string(),
+            plugin_address: "plugin".to_string(),
+            change_type: "0".to_string(),
+        }
+    }
+
+    fn create_test_editor_removed(
+        dao_address: &str,
+        editor_address: &str,
+    ) -> wire::pb::chain::EditorRemoved {
+        wire::pb::chain::EditorRemoved {
+            dao_address: dao_address.to_string(),
+            editor_address: editor_address.to_string(),
             plugin_address: "plugin".to_string(),
             change_type: "0".to_string(),
         }
@@ -867,5 +919,75 @@ mod tests {
         assert_eq!(result[1].subspace_address, "subspace2");
         assert_eq!(result[2].dao_address, "dao1");
         assert_eq!(result[2].subspace_address, "subspace3");
+    }
+
+    #[test]
+    fn test_map_members_removed_empty() {
+        let members = vec![];
+        let result = map_members_removed(&members);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_map_members_removed_single() {
+        let members = vec![create_test_member_removed("dao1", "member1")];
+        let result = map_members_removed(&members);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].dao_address, "dao1");
+        assert_eq!(result[0].editor_address, "member1");
+    }
+
+    #[test]
+    fn test_map_members_removed_multiple() {
+        let members = vec![
+            create_test_member_removed("dao1", "member1"),
+            create_test_member_removed("dao2", "member2"),
+            create_test_member_removed("dao1", "member3"),
+        ];
+        let result = map_members_removed(&members);
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].dao_address, "dao1");
+        assert_eq!(result[0].editor_address, "member1");
+        assert_eq!(result[1].dao_address, "dao2");
+        assert_eq!(result[1].editor_address, "member2");
+        assert_eq!(result[2].dao_address, "dao1");
+        assert_eq!(result[2].editor_address, "member3");
+    }
+
+    #[test]
+    fn test_map_editors_removed_empty() {
+        let editors = vec![];
+        let result = map_editors_removed(&editors);
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn test_map_editors_removed_single() {
+        let editors = vec![create_test_editor_removed("dao1", "editor1")];
+        let result = map_editors_removed(&editors);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].dao_address, "dao1");
+        assert_eq!(result[0].editor_address, "editor1");
+    }
+
+    #[test]
+    fn test_map_editors_removed_multiple() {
+        let editors = vec![
+            create_test_editor_removed("dao1", "editor1"),
+            create_test_editor_removed("dao2", "editor2"),
+            create_test_editor_removed("dao1", "editor3"),
+        ];
+        let result = map_editors_removed(&editors);
+
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].dao_address, "dao1");
+        assert_eq!(result[0].editor_address, "editor1");
+        assert_eq!(result[1].dao_address, "dao2");
+        assert_eq!(result[1].editor_address, "editor2");
+        assert_eq!(result[2].dao_address, "dao1");
+        assert_eq!(result[2].editor_address, "editor3");
     }
 }
