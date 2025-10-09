@@ -280,7 +280,7 @@ export const proposals = pgTable("proposals",
     creator: varchar("creator", { length: 42 }).notNull(),
     startTime: bigint("start_time", { mode: "number" }).notNull(),
     endTime: bigint("end_time", { mode: "number" }).notNull(),
-    daoAddress: text().notNull().references(() => spaces.daoAddress),
+    daoAddress: text().notNull(),
     spaceId: uuid().notNull().references(() => spaces.id)
   },
   (table) => [
