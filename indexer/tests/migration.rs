@@ -153,6 +153,8 @@ async fn main() -> Result<(), IndexingError> {
                 removed_members: vec![],
                 added_subspaces: vec![],
                 removed_subspaces: vec![],
+                executed_proposals: vec![],
+                created_proposals: vec![],
             },
             KgData {
                 block: block_2,
@@ -168,6 +170,8 @@ async fn main() -> Result<(), IndexingError> {
                 removed_members: vec![],
                 added_subspaces: vec![],
                 removed_subspaces: vec![],
+                executed_proposals: vec![],
+                created_proposals: vec![],
             },
         ])
         .await?;
