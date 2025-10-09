@@ -14,8 +14,8 @@ use wire::pb::chain::GeoOutput;
 use crate::{
     cache::{postgres::PostgresCache, CacheBackend, PreprocessedEdit},
     error::IndexingError,
-    AddedMember, AddedSubspace, CreatedSpace, KgData, PersonalSpace, PublicSpace, RemovedMember,
-    RemovedSubspace,
+    AddedMember, AddedSubspace, CreatedSpace, ExecutedProposal, KgData, PersonalSpace,
+    ProposalCreated, PublicSpace, RemovedMember, RemovedSubspace,
 };
 
 /// Matches spaces with their corresponding plugins based on DAO address
@@ -157,6 +157,123 @@ pub fn map_editors_removed(editors: &[wire::pb::chain::EditorRemoved]) -> Vec<Re
             editor_address: e.editor_address.clone(),
         })
         .collect()
+}
+
+/// Maps executed proposal events to ExecutedProposal structs
+pub fn map_executed_proposals(
+    proposals: &[wire::pb::chain::ProposalExecuted],
+) -> Vec<ExecutedProposal> {
+    proposals
+        .iter()
+        .map(|p| ExecutedProposal {
+            proposal_id: p.proposal_id.clone(),
+            plugin_address: p.plugin_address.clone(),
+        })
+        .collect()
+}
+
+/// Maps created proposal events to ProposalCreated enum variants
+pub fn map_created_proposals(geo: &wire::pb::chain::GeoOutput) -> Vec<ProposalCreated> {
+    let mut proposals = Vec::new();
+
+    // Map PublishEdit proposals
+    for p in &geo.edits {
+        proposals.push(ProposalCreated::PublishEdit {
+            proposal_id: p.proposal_id.clone(),
+            creator: p.creator.clone(),
+            start_time: p.start_time.clone(),
+            end_time: p.end_time.clone(),
+            content_uri: p.content_uri.clone(),
+            dao_address: p.dao_address.clone(),
+            plugin_address: p.plugin_address.clone(),
+        });
+    }
+
+    // Map AddMember proposals
+    for p in &geo.proposed_added_members {
+        proposals.push(ProposalCreated::AddMember {
+            proposal_id: p.proposal_id.clone(),
+            creator: p.creator.clone(),
+            start_time: p.start_time.clone(),
+            end_time: p.end_time.clone(),
+            member: p.member.clone(),
+            dao_address: p.dao_address.clone(),
+            plugin_address: p.plugin_address.clone(),
+            change_type: p.change_type.clone(),
+        });
+    }
+
+    // Map RemoveMember proposals
+    for p in &geo.proposed_removed_members {
+        proposals.push(ProposalCreated::RemoveMember {
+            proposal_id: p.proposal_id.clone(),
+            creator: p.creator.clone(),
+            start_time: p.start_time.clone(),
+            end_time: p.end_time.clone(),
+            member: p.member.clone(),
+            dao_address: p.dao_address.clone(),
+            plugin_address: p.plugin_address.clone(),
+            change_type: p.change_type.clone(),
+        });
+    }
+
+    // Map AddEditor proposals
+    for p in &geo.proposed_added_editors {
+        proposals.push(ProposalCreated::AddEditor {
+            proposal_id: p.proposal_id.clone(),
+            creator: p.creator.clone(),
+            start_time: p.start_time.clone(),
+            end_time: p.end_time.clone(),
+            editor: p.editor.clone(),
+            dao_address: p.dao_address.clone(),
+            plugin_address: p.plugin_address.clone(),
+            change_type: p.change_type.clone(),
+        });
+    }
+
+    // Map RemoveEditor proposals
+    for p in &geo.proposed_removed_editors {
+        proposals.push(ProposalCreated::RemoveEditor {
+            proposal_id: p.proposal_id.clone(),
+            creator: p.creator.clone(),
+            start_time: p.start_time.clone(),
+            end_time: p.end_time.clone(),
+            editor: p.editor.clone(),
+            dao_address: p.dao_address.clone(),
+            plugin_address: p.plugin_address.clone(),
+            change_type: p.change_type.clone(),
+        });
+    }
+
+    // Map AddSubspace proposals
+    for p in &geo.proposed_added_subspaces {
+        proposals.push(ProposalCreated::AddSubspace {
+            proposal_id: p.proposal_id.clone(),
+            creator: p.creator.clone(),
+            start_time: p.start_time.clone(),
+            end_time: p.end_time.clone(),
+            subspace: p.subspace.clone(),
+            dao_address: p.dao_address.clone(),
+            plugin_address: p.plugin_address.clone(),
+            change_type: p.change_type.clone(),
+        });
+    }
+
+    // Map RemoveSubspace proposals
+    for p in &geo.proposed_removed_subspaces {
+        proposals.push(ProposalCreated::RemoveSubspace {
+            proposal_id: p.proposal_id.clone(),
+            creator: p.creator.clone(),
+            start_time: p.start_time.clone(),
+            end_time: p.end_time.clone(),
+            subspace: p.subspace.clone(),
+            dao_address: p.dao_address.clone(),
+            plugin_address: p.plugin_address.clone(),
+            change_type: p.change_type.clone(),
+        });
+    }
+
+    proposals
 }
 
 /// Preprocesses block scoped data from the substream
@@ -308,6 +425,9 @@ pub async fn preprocess_block_scoped_data(
     
     let removed_members = map_members_removed(&geo.members_removed);
     let removed_editors = map_editors_removed(&geo.editors_removed);
+    
+    let executed_proposals = map_executed_proposals(&geo.executed_proposals);
+    let created_proposals = map_created_proposals(&geo);
 
     let kg_data = KgData {
         edits: final_edits.clone(),
@@ -319,6 +439,8 @@ pub async fn preprocess_block_scoped_data(
         added_subspaces: added_subspaces.clone(),
         removed_subspaces: removed_subspaces.clone(),
         block: block_metadata,
+        executed_proposals: executed_proposals.clone(),
+        created_proposals: created_proposals.clone(),
     };
 
     info!(
@@ -330,6 +452,8 @@ pub async fn preprocess_block_scoped_data(
         removed_member_count = kg_data.removed_members.len(),
         subspace_added_count = kg_data.added_subspaces.len(),
         subspace_removed_count = kg_data.removed_subspaces.len(),
+        executed_proposal_count = kg_data.executed_proposals.len(),
+        created_proposal_count = kg_data.created_proposals.len(),
         "Preprocessed block data"
     );
 

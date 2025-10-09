@@ -57,6 +57,85 @@ pub struct RemovedSubspace {
 }
 
 #[derive(Clone, Debug)]
+pub struct ExecutedProposal {
+    pub proposal_id: String,
+    pub plugin_address: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum ProposalCreated {
+    PublishEdit {
+        proposal_id: String,
+        creator: String,
+        start_time: String,
+        end_time: String,
+        content_uri: String,
+        dao_address: String,
+        plugin_address: String,
+    },
+    AddMember {
+        proposal_id: String,
+        creator: String,
+        start_time: String,
+        end_time: String,
+        member: String,
+        dao_address: String,
+        plugin_address: String,
+        change_type: String,
+    },
+    RemoveMember {
+        proposal_id: String,
+        creator: String,
+        start_time: String,
+        end_time: String,
+        member: String,
+        dao_address: String,
+        plugin_address: String,
+        change_type: String,
+    },
+    AddEditor {
+        proposal_id: String,
+        creator: String,
+        start_time: String,
+        end_time: String,
+        editor: String,
+        dao_address: String,
+        plugin_address: String,
+        change_type: String,
+    },
+    RemoveEditor {
+        proposal_id: String,
+        creator: String,
+        start_time: String,
+        end_time: String,
+        editor: String,
+        dao_address: String,
+        plugin_address: String,
+        change_type: String,
+    },
+    AddSubspace {
+        proposal_id: String,
+        creator: String,
+        start_time: String,
+        end_time: String,
+        subspace: String,
+        dao_address: String,
+        plugin_address: String,
+        change_type: String,
+    },
+    RemoveSubspace {
+        proposal_id: String,
+        creator: String,
+        start_time: String,
+        end_time: String,
+        subspace: String,
+        dao_address: String,
+        plugin_address: String,
+        change_type: String,
+    },
+}
+
+#[derive(Clone, Debug)]
 pub struct KgData {
     pub block: BlockMetadata,
     pub edits: Vec<PreprocessedEdit>,
@@ -69,4 +148,6 @@ pub struct KgData {
     // Note for now that we only need the dao address. Eventually we'll
     // index the plugin addresses as well.
     pub spaces: Vec<CreatedSpace>,
+    pub executed_proposals: Vec<ExecutedProposal>,
+    pub created_proposals: Vec<ProposalCreated>,
 }
